@@ -33,7 +33,7 @@ Pi runs through `--mode rpc`; it is not embedded or forked. Startup networking/t
 
 Use **Connect Claude** with Cloud selected. Approve Anthropic's browser sign-in, then enter its one-time authorization code in the connection panel—not chat. Core forwards that code to the native CLI; Claude exchanges it and stores/renews credentials on the VM. Tokens never pass through the GUI or core API. Do not copy Mac credentials.
 
-The `claude_auth` capability exposes authenticated `GET /v1/accounts/claude` and `POST /v1/accounts/claude/{login,cancel,complete}`. Mutations take `request_id`; `complete` also takes `code` and OAuth `state`. Duplicate starts reuse the pending flow; cancellation targets its ID. The isolated, tool-free CLI process expires after ten minutes and produces no conversation records. Tested with Claude **2.1.280**. Upgrade core and GUI together.
+The `claude_auth` capability exposes authenticated `GET /v1/accounts/claude` and `POST /v1/accounts/claude/{login,cancel,complete,token,key}`. Mutations take `request_id`; `complete` also takes `code` and OAuth `state`; `token` takes a `token` (`sk-ant-oat...`) and an optional `plan`; `key` takes an `api_key` (`sk-ant-api...`). Duplicate starts reuse the pending flow; cancellation targets its ID. The isolated, tool-free CLI process expires after ten minutes and produces no conversation records. Tested with Claude **2.1.280**. Upgrade core and GUI together.
 
 Terminal fallback: run `claude auth login` and `claude auth status` as the configured agent account (`sudo -iu cloudroom-agent` on managed VMs), never root or the protected core account.
 

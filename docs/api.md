@@ -62,7 +62,7 @@ Session `state` values: `pending`, `starting`, `resuming`, `starting_turn`, `run
 Harness logins run on the VM. Responses report status and sign-in links, never tokens ([harnesses](harnesses.md)).
 
 - Codex: `GET /v1/accounts/codex`; `POST .../login`, `.../import`, `.../switched`, `.../cancel`.
-- Claude Code: `GET /v1/accounts/claude`; `POST .../{login|cancel|complete|token}`.
+- Claude Code: `GET /v1/accounts/claude`; `POST .../{login|cancel|complete|token|key}`; `POST .../version` with `{version}` to match the VM's Claude Code version to a client's. It returns `state` (`current`, `updating`, `waiting` or `failed`), `target` and `installed`, and waits while a Claude session runs.
 - Cursor: `GET /v1/accounts/cursor`; `POST .../{login|cancel|key}`.
 - Pi: `GET /v1/accounts/pi`; `POST .../import`, `.../key`.
 
