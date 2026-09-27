@@ -421,7 +421,7 @@ async fn authenticate(State(token): State<Arc<String>>, request: Request, next: 
         (
             StatusCode::UNAUTHORIZED,
             [(header::WWW_AUTHENTICATE, "Bearer")],
-            Json(json!({"error":"unauthorized"})),
+            Json(json!({"error":"unauthorized","code":"unauthorized"})),
         )
             .into_response()
     };
@@ -1098,4 +1098,44 @@ async fn stream(
         }
     });
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(KeepAlive::default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn get(address: std::net::SocketAddr, authorization: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        let request = format!(
+            "GET /v1/health HTTP/1.1\r\nHost: localhost\r\n{authorization}Connection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    #[tokio::test]
+    async fn rejected_tokens_return_the_unauthorized_code() {
+        let app = Router::new()
+            .route("/v1/health", axum::routing::get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(
+                Arc::new("right-token".to_owned()),
+                authenticate,
+            ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        for authorization in ["", "Authorization: Bearer wrong-token\r\n"] {
+            let response = get(address, authorization).await;
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            let body: Value =
+                serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+            assert_eq!(body, json!({"error":"unauthorized","code":"unauthorized"}));
+        }
+        let response = get(address, "Authorization: Bearer right-token\r\n").await;
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    }
 }
