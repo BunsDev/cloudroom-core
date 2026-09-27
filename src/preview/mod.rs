@@ -539,9 +539,28 @@ async fn report(
 }
 
 fn agent_listener(port: u16, uid: u32) -> io::Result<bool> {
+    listener_in(
+        Path::new("/proc/net/tcp"),
+        Path::new("/proc/net/tcp6"),
+        port,
+        uid,
+    )
+}
+
+fn listener_in(ipv4: &Path, ipv6: &Path, port: u16, uid: u32) -> io::Result<bool> {
+    let ipv4 = fs::read_to_string(ipv4)?;
+    // Kernels booted with `ipv6.disable=1` have no IPv6 table.
+    let ipv6 = match fs::read_to_string(ipv6) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        result => result?,
+    };
+    listener_owned_by(&[&ipv4, &ipv6], port, uid)
+}
+
+fn listener_owned_by(tables: &[&str], port: u16, uid: u32) -> io::Result<bool> {
     let mut owners: [Vec<u32>; 3] = Default::default();
-    for name in ["/proc/net/tcp", "/proc/net/tcp6"] {
-        for line in fs::read_to_string(name)?.lines().skip(1) {
+    for table in tables {
+        for line in table.lines().skip(1) {
             let fields: Vec<_> = line.split_whitespace().collect();
             if fields.len() <= 7 || fields[3] != "0A" {
                 continue;
@@ -760,4 +779,55 @@ pub async fn cli(args: &[String]) -> io::Result<()> {
     }
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEADER: &str = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
+
+    fn table(rows: &[&str]) -> String {
+        std::iter::once(HEADER)
+            .chain(rows.iter().copied())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn ipv4_listener_is_found_without_an_ipv6_table() {
+        // Port 0x1F90 = 8080, state 0A = LISTEN, uid 1001.
+        let ipv4 = table(&[
+            "   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 12345 1 0000000000000000 100 0 0 10 0",
+        ]);
+        assert!(listener_owned_by(&[&ipv4, ""], 8080, 1001).unwrap());
+        assert!(!listener_owned_by(&[&ipv4, ""], 8080, 1002).unwrap());
+        assert!(!listener_owned_by(&[&ipv4, ""], 8081, 1001).unwrap());
+    }
+
+    #[test]
+    fn missing_ipv6_table_is_not_an_error() {
+        let directory = std::env::temp_dir().join(format!("cr-preview-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let ipv4 = directory.join("tcp");
+        fs::write(
+            &ipv4,
+            table(&[
+                "   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 12345 1 0000000000000000 100 0 0 10 0",
+            ]),
+        )
+        .unwrap();
+        let result = listener_in(&ipv4, &directory.join("tcp6"), 8080, 1001);
+        fs::remove_dir_all(&directory).unwrap();
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn loopback_listener_takes_precedence_over_wildcard() {
+        let ipv4 = table(&[
+            "   0: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1002        0 1 1 0000000000000000 100 0 0 10 0",
+            "   1: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 2 1 0000000000000000 100 0 0 10 0",
+        ]);
+        assert!(listener_owned_by(&[&ipv4, ""], 8080, 1001).unwrap());
+    }
 }
