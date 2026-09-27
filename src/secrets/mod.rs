@@ -385,12 +385,16 @@ fn check_file(content: &str, names: &[String]) -> io::Result<()> {
     Ok(())
 }
 
+/// Quotes a value so the written file passes `check_file` on the next request.
 fn encode(value: &str) -> io::Result<String> {
     if !value.contains('\'') {
         Ok(format!("'{value}'"))
-    } else if !value.contains('"') && !value.contains("\\n") && !value.contains("\\r") {
+    } else if !value.contains('"') && !value.contains('\\') {
+        // Parsers expand backslash escapes inside double quotes, and a trailing
+        // backslash would escape the closing quote.
         Ok(format!("\"{value}\""))
-    } else if value == value.trim() && !value.contains('#') {
+    } else if value == value.trim() && !value.contains('#') && !value.starts_with(['\'', '"', '`'])
+    {
         Ok(value.into())
     } else {
         Err(io::Error::other(
@@ -460,4 +464,37 @@ fn reconcile(
         joined.push_str(ending);
     }
     Ok((joined, added, updated, unchanged))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn written_values_can_be_reconciled_again() {
+        let names = vec!["KEY".to_owned()];
+        for value in [
+            "plain",
+            "it's",
+            r"C:\bob's\",
+            r"it's\n",
+            "'a\"b",
+            "\"a'b",
+            "`a'b\"",
+        ] {
+            let values = Values::from([("KEY".to_owned(), value.to_owned())]);
+            match reconcile("", &names, &values) {
+                Ok((written, ..)) => {
+                    check_file(&written, &names)
+                        .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
+                    reconcile(&written, &names, &values)
+                        .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
+                }
+                Err(error) => assert!(
+                    error.to_string().contains("cannot be represented safely"),
+                    "{value}: {error}"
+                ),
+            }
+        }
+    }
 }
