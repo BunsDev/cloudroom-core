@@ -1,7 +1,7 @@
 //! Open agent-controlled files under the agent identity, then retain the opened inode.
 use std::{
     fs::File,
-    io::{self, Read, Write},
+    io::{self, BufRead, Read, Write},
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd},
         unix::net::UnixStream,
@@ -12,6 +12,29 @@ use std::{
 use tokio::process::Command;
 
 pub(super) type Identity = Option<(u32, u32)>;
+
+/// Reads one JSONL record of at most `max` bytes. Returns `Ok(None)` at end of file and while
+/// the last record is still being appended. UTF-8 is checked only after the newline arrives,
+/// so a record that currently ends inside a multibyte character is not an error.
+pub(super) fn complete_line(
+    reader: &mut impl BufRead,
+    max: usize,
+    too_large: &'static str,
+) -> io::Result<Option<(usize, String)>> {
+    let mut raw = Vec::new();
+    let n = (&mut *reader)
+        .take((max + 1) as u64)
+        .read_until(b'\n', &mut raw)?;
+    if n > max {
+        return Err(io::Error::other(too_large));
+    }
+    if raw.last() != Some(&b'\n') {
+        return Ok(None);
+    }
+    String::from_utf8(raw)
+        .map(|line| Some((n, line)))
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
 
 pub(super) fn checkpoint(
     previous: &serde_json::Value,
@@ -272,4 +295,46 @@ fn receive(socket: &mut UnixStream) -> io::Result<File> {
         .as_i64()
         .map(|code| io::Error::from_raw_os_error(code as i32))
         .unwrap_or_else(|| io::Error::other("agent file path is invalid")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::complete_line;
+    use std::io::Cursor;
+
+    #[test]
+    fn partial_multibyte_record_waits_for_its_newline() {
+        let mut reader = Cursor::new(b"{\"a\":\"\xC3".to_vec());
+        assert!(
+            complete_line(&mut reader, 64, "too large")
+                .unwrap()
+                .is_none()
+        );
+
+        let mut reader =
+            Cursor::new("{\"a\":\"\u{e9}\"}\n{\"b\":\"\u{e9}".as_bytes()[..17].to_vec());
+        let (n, line) = complete_line(&mut reader, 64, "too large")
+            .unwrap()
+            .unwrap();
+        assert_eq!((n, line.as_str()), (11, "{\"a\":\"\u{e9}\"}\n"));
+        assert!(
+            complete_line(&mut reader, 64, "too large")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn empty_oversized_and_invalid_records() {
+        assert!(
+            complete_line(&mut Cursor::new(Vec::new()), 64, "too large")
+                .unwrap()
+                .is_none()
+        );
+        let error = complete_line(&mut Cursor::new(vec![b'x'; 65]), 64, "too large").unwrap_err();
+        assert_eq!(error.to_string(), "too large");
+        let error =
+            complete_line(&mut Cursor::new(b"\xC3\n".to_vec()), 64, "too large").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
 }

@@ -769,20 +769,9 @@ impl Capture {
         let mut reader = BufReader::new(file);
         let mut found = self.initialized || self.cursor.is_null();
         let mut events = Vec::new();
-        loop {
-            let mut raw = String::new();
-            let n = (&mut reader)
-                .take((MAX_LINE + 1) as u64)
-                .read_line(&mut raw)?;
-            if n == 0 {
-                break;
-            }
-            if n > MAX_LINE {
-                return Err(io::Error::other("Pi history record too large"));
-            }
-            if !raw.ends_with('\n') {
-                break;
-            }
+        while let Some((n, raw)) =
+            super::files::complete_line(&mut reader, MAX_LINE, "Pi history record too large")?
+        {
             self.offset += n as u64;
             let entry: Value = serde_json::from_str(&raw)?;
             let key = if entry["type"] == "session" {

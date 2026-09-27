@@ -1150,19 +1150,11 @@ impl Capture {
         let start = self.offset;
         let mut offset = start;
         while offset - start < 65536 {
-            let mut raw = String::new();
-            let n = (&mut reader)
-                .take((MAX_LINE + 1) as u64)
-                .read_line(&mut raw)?;
-            if n == 0 {
+            let Some((n, raw)) =
+                files::complete_line(&mut reader, MAX_LINE, "Claude native record too large")?
+            else {
                 break;
-            }
-            if n > MAX_LINE {
-                return Err(io::Error::other("Claude native record too large"));
-            }
-            if !raw.ends_with('\n') {
-                break;
-            }
+            };
             let _: Value = serde_json::from_str(&raw)?;
             events.push(Event::Record {
                 kind: "native_record",
@@ -1191,5 +1183,40 @@ pub(super) fn recover(
         if !capture.more {
             return Ok(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn capture_waits_for_a_record_cut_inside_a_multibyte_character() {
+        let directory =
+            std::env::temp_dir().join(format!("cr-claude-capture-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("session.jsonl");
+        let mut writer = File::create(&path).unwrap();
+        writer.write_all(b"{\"a\":1}\n{\"b\":\"\xC3").unwrap();
+        let mut capture = Capture {
+            root: directory.clone(),
+            path: Some(path.clone()),
+            file: Some(File::open(&path).unwrap()),
+            offset: 0,
+            identity: None,
+            more: false,
+        };
+        let first = capture.read();
+        let offset_after_first = capture.offset;
+        writer.write_all(b"\xA9\"}\n").unwrap();
+        let second = capture.read();
+        fs::remove_dir_all(&directory).unwrap();
+
+        assert_eq!(first.unwrap().len(), 1);
+        // The torn record is left for the next read, not reported as an error.
+        assert_eq!(offset_after_first, 8);
+        assert_eq!(second.unwrap().len(), 1);
+        assert_eq!(capture.offset, 19);
     }
 }
