@@ -807,8 +807,16 @@ mod tests {
 
     #[test]
     fn missing_ipv6_table_is_not_an_error() {
-        let directory = std::env::temp_dir().join(format!("cr-preview-{}", std::process::id()));
-        fs::create_dir_all(&directory).unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "cloudroom-preview-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        // `create_dir` fails instead of silently reusing a leftover directory.
+        fs::create_dir(&directory).unwrap();
         let ipv4 = directory.join("tcp");
         fs::write(
             &ipv4,
