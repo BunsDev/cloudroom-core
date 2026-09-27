@@ -31,9 +31,15 @@ pub(super) fn complete_line(
     if raw.last() != Some(&b'\n') {
         return Ok(None);
     }
+    // Same error `read_line` returned for a complete record with invalid UTF-8.
     String::from_utf8(raw)
         .map(|line| Some((n, line)))
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "stream did not contain valid UTF-8",
+            )
+        })
 }
 
 pub(super) fn checkpoint(
@@ -336,5 +342,6 @@ mod tests {
         let error =
             complete_line(&mut Cursor::new(b"\xC3\n".to_vec()), 64, "too large").unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "stream did not contain valid UTF-8");
     }
 }
