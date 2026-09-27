@@ -473,28 +473,33 @@ mod tests {
     #[test]
     fn written_values_can_be_reconciled_again() {
         let names = vec!["KEY".to_owned()];
-        for value in [
-            "plain",
-            "it's",
-            r"C:\bob's\",
-            r"it's\n",
-            "'a\"b",
-            "\"a'b",
-            "`a'b\"",
+        // `None` means the value must be refused instead of written.
+        for (value, expected) in [
+            ("plain", Some("KEY='plain'")),
+            ("it's", Some("KEY=\"it's\"")),
+            (r"C:\bob's\", Some(r"KEY=C:\bob's\")),
+            (r"it's\n", Some(r"KEY=it's\n")),
+            ("'a\"b", None),
+            ("\"a'b", None),
+            ("`a'b\"", None),
         ] {
             let values = Values::from([("KEY".to_owned(), value.to_owned())]);
-            match reconcile("", &names, &values) {
-                Ok((written, ..)) => {
-                    check_file(&written, &names)
-                        .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
-                    reconcile(&written, &names, &values)
-                        .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
-                }
-                Err(error) => assert!(
+            let result = reconcile("", &names, &values);
+            let Some(expected) = expected else {
+                let error = result.expect_err(value);
+                assert!(
                     error.to_string().contains("cannot be represented safely"),
                     "{value}: {error}"
-                ),
-            }
+                );
+                continue;
+            };
+            let (written, ..) = result.unwrap_or_else(|error| panic!("{value}: {error}"));
+            assert_eq!(written, format!("{expected}\n"), "{value}");
+            check_file(&written, &names)
+                .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
+            let (again, ..) = reconcile(&written, &names, &values)
+                .unwrap_or_else(|error| panic!("{value}: {written:?} {error}"));
+            assert_eq!(again, written, "{value}");
         }
     }
 }
