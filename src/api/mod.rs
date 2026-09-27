@@ -486,13 +486,17 @@ impl IntoResponse for session::Error {
             | "saved session has no matching receipt" => "request_conflict",
             "agent setup is incomplete" | "harness is not configured" => "harness_not_configured",
             "invalid workspace" | "workspace mapping unavailable" => "invalid_workspace",
-            "storage unsafe; new execution is blocked" => "storage_blocked",
+            "storage unsafe; new execution is blocked" | "storage unsafe; uploads are blocked" => {
+                "storage_blocked"
+            }
             "service is stopping" => "service_stopping",
             "model catalog unavailable" => "model_catalog_unavailable",
             "connect Codex before starting cloud work" => "codex_auth_required",
             "connect Claude Code before starting cloud work" => "claude_auth_required",
             "Claude account could not be verified" => "claude_auth_unavailable",
-            "Claude live steering is not supported" => "unsupported_command",
+            "Claude live steering is not supported"
+            | "operation is unsupported by this harness"
+            | "unsupported command" => "unsupported_command",
             "Codex usage limit reached" => "codex_usage_limit",
             "Codex account could not be verified" => "codex_auth_unavailable",
             "connect Cursor before starting cloud work" => "cursor_auth_required",
@@ -986,7 +990,10 @@ async fn attach(
             "session journal is not writable".into(),
         ));
     }
-    if manager.is_stopping() || manager.storage.blocks() {
+    if manager.is_stopping() {
+        return Err(session::Error::Conflict("service is stopping"));
+    }
+    if manager.storage.blocks() {
         return Err(session::Error::Conflict(
             "storage unsafe; uploads are blocked",
         ));
@@ -1098,4 +1105,45 @@ async fn stream(
         }
     });
     Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(KeepAlive::default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn code(error: session::Error) -> (StatusCode, String) {
+        let response = error.into_response();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        (status, body["code"].as_str().unwrap().to_owned())
+    }
+
+    #[tokio::test]
+    async fn rejections_use_documented_codes() {
+        for (message, expected) in [
+            (
+                "storage unsafe; new execution is blocked",
+                "storage_blocked",
+            ),
+            ("storage unsafe; uploads are blocked", "storage_blocked"),
+            ("service is stopping", "service_stopping"),
+            (
+                "Claude live steering is not supported",
+                "unsupported_command",
+            ),
+            (
+                "operation is unsupported by this harness",
+                "unsupported_command",
+            ),
+            ("unsupported command", "unsupported_command"),
+            ("some other rejection", "request_rejected"),
+        ] {
+            let (status, code) = code(session::Error::Conflict(message)).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{message}");
+            assert_eq!(code, expected, "{message}");
+        }
+    }
 }
