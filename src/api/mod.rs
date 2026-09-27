@@ -529,16 +529,48 @@ async fn workspace(
     State(manager): State<Arc<Manager>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match manager.workspaces.get(&id) {
+    workspace_response(manager.workspaces.get(&id))
+}
+
+fn workspace_response<T: serde::Serialize>(
+    result: std::io::Result<Option<T>>,
+) -> (StatusCode, Json<Value>) {
+    match result {
         Ok(Some(workspace)) => (StatusCode::OK, Json(json!(workspace))),
         Ok(None) => (
             StatusCode::NOT_FOUND,
-            Json(json!({"error":"workspace not found"})),
+            Json(json!({"error":"workspace not found","code":"invalid_workspace"})),
         ),
         Err(error) => (
             StatusCode::CONFLICT,
-            Json(json!({"error":format!("workspace unavailable: {error}")})),
+            Json(json!({
+                "error": format!("workspace unavailable: {error}"),
+                "code": "invalid_workspace",
+            })),
         ),
+    }
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    #[test]
+    fn workspace_errors_carry_the_invalid_workspace_code() {
+        let (status, Json(body)) = workspace_response::<Value>(Ok(None));
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["code"], "invalid_workspace");
+
+        let (status, Json(body)) =
+            workspace_response::<Value>(Err(std::io::Error::other("mapping changed")));
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "invalid_workspace");
+        assert_eq!(body["error"], "workspace unavailable: mapping changed");
+
+        let (status, Json(body)) =
+            workspace_response(Ok(Some(json!({"id":"project","path":"/code/project"}))));
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, json!({"id":"project","path":"/code/project"}));
     }
 }
 

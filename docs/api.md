@@ -68,7 +68,7 @@ Harness logins run on the VM. Responses report status and sign-in links, never t
 
 ## Workspaces, sync, previews and transfers
 
-- `GET /v1/workspaces/{id}`: a cloud folder mapping ([cloud folders](setup.md#cloud-folders)).
+- `GET /v1/workspaces/{id}`: a cloud folder mapping ([cloud folders](setup.md#cloud-folders)). An unknown mapping returns `404` and an unusable one returns `409`, both with `invalid_workspace`.
 - `GET /v1/settings`, `POST /v1/sync`, `GET /v1/sync/{id}`, `GET|PUT /v1/sync/{id}/file`: skills and settings sync ([sync](setup.md#skills-and-login-sync)).
 - `/v1/previews...`: open cloud web servers on your laptop's localhost ([previews](previews.md)).
 - `POST /v1/teleports`, `POST /v1/teleports/check`, `GET /v1/teleports/{id}`, `POST .../activate`, `.../cancel`, `.../files/{index}`: move a local conversation and its files to the cloud.
