@@ -78,6 +78,7 @@ test("reports allowlisted rejections, keeps temporary conflicts retryable, and s
     [{ error: "storage unsafe; new execution is blocked" }, "storage_blocked", true],
     [{ code: "service_stopping" }, "service_stopping", true],
     [{ code: "model_catalog_unavailable" }, "model_catalog_unavailable", true],
+    [{ code: "unsupported_command" }, "unsupported_command", false],
     [{ code: "SECRET-CANARY", error: "SECRET-CANARY" }, null, true],
     [{ code: "constructor", error: "SECRET-CANARY" }, null, true],
     [{ code: "invalid_model", padding: "SECRET-CANARY".repeat(1000) }, null, true],
@@ -94,7 +95,7 @@ test("reports allowlisted rejections, keeps temporary conflicts retryable, and s
       return true;
     });
   }
-  assert.equal(service.requests.length, 12);
+  assert.equal(service.requests.length, 13);
 });
 
 test("attachment failures distinguish permissions and size without disclosing server details or retrying", async (t) => {

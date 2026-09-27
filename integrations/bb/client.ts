@@ -82,6 +82,7 @@ const rejectionMessages: Record<string, string> = {
   teleport_rejected: "Teleport could not validate its saved conversation or files. The source is preserved. Check the transfer details and core logs before retrying.",
   teleport_cancelled: "This transfer was cancelled. Local history is preserved.",
   teleport_running: "Cloud execution already owns this transfer. Use Stop instead of Cancel.",
+  unsupported_command: "This harness does not support that operation on Cloud.",
   codex_auth_required: "Connect your ChatGPT subscription to use Codex in Cloud. Your prompt is saved.",
   claude_auth_required: "Connect your Claude subscription to use Claude Code in Cloud. Your prompt is saved.",
   claude_auth_unavailable: "Could not verify the cloud Claude account. Check the CLI installation and native login, then retry.",
